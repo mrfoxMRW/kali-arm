@@ -1,68 +1,268 @@
-name: Build Kali Linux for NanoPi
+name: Build Kali Linux for NanoPi NEO Plus2
 
 on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: 'Architecture (arm64, armhf)'
+        required: false
+        default: 'arm64'
+        type: choice
+        options:
+          - arm64
+          - armhf
+      desktop:
+        description: 'Desktop Environment'
+        required: false
+        default: 'xfce'
+        type: choice
+        options:
+          - xfce
+          - gnome
+          - kde
+          - i3
+          - lxde
+          - mate
+          - e17
+          - none
+      minimal:
+        description: 'Minimal image (no desktop)'
+        required: false
+        default: false
+        type: boolean
+      slim:
+        description: 'Slim image (no desktop & cli tools)'
+        required: false
+        default: false
+        type: boolean
+
+  # 定时触发（每周日凌晨2点）
+  schedule:
+    - cron: '0 2 * * 0'
+
+  # 代码推送时触发
   push:
-    branches: [ main ]
-  workflow_dispatch: # 支持手动触发编译
+    branches: [ main, master ]
+    paths:
+      - '.github/workflows/build-nanopi-neo-plus2.yml'
+
+env:
+  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    
     steps:
-      - name: 拉取代码
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive' # 确保子模块也被拉取，通常构建脚本依赖子模块
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: 执行官方依赖脚本 (build_deps.sh)
-        run: |
-          echo "🚀 开始执行环境配置脚本..."
-          if [ -f ./common.d/build_deps.sh ]; then
-            chmod +x ./common.d/build_deps.sh
-            # 官方脚本通常会自动处理 apt 源更新和依赖安装
-            sudo ./common.d/build_deps.sh
-          else
-            echo "❌ 错误：未找到 ./common.d/build_deps.sh"
-            exit 1
-          fi
+    - name: Set up QEMU for ARM emulation
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64,arm
 
-      - name: 执行 NanoPi 构建脚本
-        run: |
-          echo "🚀 开始构建 NanoPi Neo Plus2 镜像..."
-          if [ -f ./nanopi-neo-plus2.sh ]; then
-            chmod +x ./nanopi-neo-plus2.sh
-            export TERM=xterm
-            # 使用 sudo -E 传递环境变量执行构建
-            sudo -E ./nanopi-neo-plus2.sh
-          else
-            echo "❌ 错误：未找到 ./nanopi-neo-plus2.sh"
-            exit 1
-          fi
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      - name: 检查编译产物 (images/)
-        run: |
-          echo "📦 检查输出目录..."
-          if [ -d "images" ]; then
-            ls -lh images/
-            # 验证是否存在预期的压缩镜像文件
-            if ls images/*.img.xz 1> /dev/null 2>&1; then
-              echo "✅ 成功找到 .img.xz 文件"
-            else
-              echo "⚠️  未在 images/ 中找到 .img.xz 文件。"
-              echo "🔍 目录内所有文件列表："
-              find images/ -type f
-              # 如果找不到 .img.xz 则报错，防止上传空制品
-              exit 1
-            fi
-          else
-            echo "❌ 错误：images/ 目录不存在，构建可能失败。"
-            exit 1
-          fi
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git \
+          qemu-user-static \
+          binfmt-support \
+          parted \
+          debootstrap \
+          zerofree \
+          pxz \
+          qemu-utils \
+          kpartx \
+          lvm2 \
+          dosfstools \
+          e2fsprogs \
+          btrfs-progs \
+          xfsprogs \
+          xz-utils \
+          curl \
+          wget \
+          rsync \
+          u-boot-tools \
+          bc \
+          bison \
+          flex \
+          libssl-dev \
+          make \
+          gcc \
+          gcc-arm-linux-gnueabihf \
+          gcc-aarch64-linux-gnu \
+          qemu-system-arm \
+          qemu-efi-aarch64 \
+          device-tree-compiler \
+          swig \
+          python3-dev \
+          python3-distutils \
+          python3-setuptools
 
-      - name: 上传编译产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: kali-linux-nanopi-neo-plus2-arm64
-          path: images/*.img.xz
-          if-no-files-found: error
-          retention-days: 7
+    - name: Clone kali-arm build scripts
+      run: |
+        git clone --depth 1 https://gitlab.com/kalilinux/build-scripts/kali-arm.git ~/kali-arm
+        cd ~/kali-arm
+        ls -la
+
+    - name: Prepare build arguments
+      id: build_args
+      run: |
+        ARCH="${{ github.event.inputs.architecture || 'arm64' }}"
+        DESKTOP="${{ github.event.inputs.desktop || 'xfce' }}"
+        
+        ARGS="--arch $ARCH --desktop $DESKTOP"
+        
+        if [ "${{ github.event.inputs.minimal }}" == "true" ]; then
+          ARGS="$ARGS --minimal"
+        fi
+        
+        if [ "${{ github.event.inputs.slim }}" == "true" ]; then
+          ARGS="$ARGS --slim"
+        fi
+        
+        echo "args=$ARGS" >> $GITHUB_OUTPUT
+        echo "Build arguments: $ARGS"
+
+    - name: Build Kali Linux image
+      run: |
+        cd ~/kali-arm
+        
+        # 显示帮助信息
+        echo "=== Build Script Help ==="
+        sudo ./nanopi-neo-plus2.sh --help || true
+        
+        # 运行构建
+        echo "=== Starting Build ==="
+        sudo ${{ steps.build_args.outputs.args }} ./nanopi-neo-plus2.sh
+      timeout-minutes: 150
+
+    - name: Check build output
+      run: |
+        cd ~/kali-arm/images
+        echo "=== Build Output ==="
+        ls -lah
+        
+        # 获取镜像文件名
+        IMAGE_FILE=$(ls -t *.img* 2>/dev/null | head -1)
+        if [ -z "$IMAGE_FILE" ]; then
+          echo "Error: No image file found!"
+          exit 1
+        fi
+        
+        echo "Generated image: $IMAGE_FILE"
+        echo "image_file=$IMAGE_FILE" >> $GITHUB_ENV
+        
+        # 计算文件哈希
+        sha256sum $IMAGE_FILE > ${IMAGE_FILE}.sha256
+        cat ${IMAGE_FILE}.sha256
+
+    - name: Compress image (if not already compressed)
+      run: |
+        cd ~/kali-arm/images
+        
+        # 查找生成的镜像文件
+        IMAGE_FILE=$(ls -t *.img 2>/dev/null | head -1)
+        
+        if [ -n "$IMAGE_FILE" ]; then
+          echo "Compressing $IMAGE_FILE..."
+          xz -T0 -v $IMAGE_FILE
+          
+          COMPRESSED_FILE="${IMAGE_FILE}.xz"
+          echo "compressed_file=$COMPRESSED_FILE" >> $GITHUB_ENV
+          
+          # 更新哈希文件
+          sha256sum $COMPRESSED_FILE > ${COMPRESSED_FILE}.sha256
+        else
+          # 查找已压缩的文件
+          COMPRESSED_FILE=$(ls -t *.img.xz 2>/dev/null | head -1)
+          echo "compressed_file=$COMPRESSED_FILE" >> $GITHUB_ENV
+        fi
+
+    - name: Get image info
+      run: |
+        cd ~/kali-arm/images
+        
+        COMPRESSED_FILE=${{ env.compressed_file }}
+        
+        echo "=== Image Information ==="
+        echo "File: $COMPRESSED_FILE"
+        echo "Size: $(du -h $COMPRESSED_FILE | cut -f1)"
+        echo "SHA256: $(cat ${COMPRESSED_FILE}.sha256 | cut -d' ' -f1)"
+        
+        # 提取版本信息
+        VERSION=$(echo $COMPRESSED_FILE | grep -oP 'kali-linux-\K[0-9.]+' || echo "unknown")
+        echo "version=$VERSION" >> $GITHUB_ENV
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: kali-nanopi-neo-plus2-${{ env.version }}-${{ github.run_number }}
+        path: |
+          ~/kali-arm/images/*.img.xz
+          ~/kali-arm/images/*.sha256
+        retention-days: 7
+        compression-level: 0  # 已经是压缩文件
+
+    - name: Create Release
+      if: github.event_name == 'workflow_dispatch'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: nanopi-neo-plus2-${{ env.version }}-${{ github.run_number }}
+        name: Kali Linux for NanoPi NEO Plus2 - ${{ env.version }}
+        body: |
+          ## Kali Linux for NanoPi NEO Plus2
+          
+          **Version:** ${{ env.version }}
+          **Build Date:** ${{ github.event.head_commit.timestamp }}
+          **Build Number:** ${{ github.run_number }}
+          
+          ### Build Configuration
+          - Architecture: ${{ github.event.inputs.architecture || 'arm64' }}
+          - Desktop: ${{ github.event.inputs.desktop || 'xfce' }}
+          - Minimal: ${{ github.event.inputs.minimal || 'false' }}
+          - Slim: ${{ github.event.inputs.slim || 'false' }}
+          
+          ### Device Information
+          - **SoC:** Allwinner H5
+          - **Architecture:** ARM64
+          - **Display:** No HDMI output (Serial console only)
+          - **Network:** Ethernet (eth0)
+          - **WiFi/BT:** AP6212
+          
+          ### Usage
+          1. Download the `.img.xz` file
+          2. Verify SHA256 checksum
+          3. Flash to SD card using Etcher, Rufus, or `dd`
+          4. Connect via serial console (115200 baud)
+          
+          ### Serial Connection
+          - Device: `/dev/ttyAMA0`
+          - Baudrate: 115200
+          - Default login: No password (set on first boot)
+          
+          ### Checksum
+          ```
+          ${{ env.compressed_file }}.sha256
+          ```
+        files: |
+          ~/kali-arm/images/*.img.xz
+          ~/kali-arm/images/*.sha256
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cleanup
+      if: always()
+      run: |
+        sudo rm -rf ~/kali-arm
+        sudo apt-get clean
+        docker system prune -f || true
