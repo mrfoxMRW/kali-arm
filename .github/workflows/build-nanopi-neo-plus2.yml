@@ -22,21 +22,8 @@ jobs:
           # 更新软件源
           sudo apt update -y
           # 安装依赖
-          sudo apt install -y \
-            debootstrap \
-            qemu-user-static \
-            binfmt-support \
-            device-tree-compiler \
-            lzma \
-            lzop \
-            u-boot-tools \
-            pixz \
-            gcc-aarch64-linux-gnu \
-            git \
-            systemd-container \
-            debian-archive-keyring \
-            apt-transport-https \
-            ca-certificates
+          sudo apt install -y qemu-user-static binfmt-support
+          ls /usr/bin/qemu-aarch64-static
 
       - name: 检查 qemu-aarch64-static 是否存在
         run: |
