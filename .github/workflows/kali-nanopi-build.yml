@@ -131,6 +131,16 @@ jobs:
         echo "args=$ARGS" >> $GITHUB_OUTPUT
         echo "Build arguments: $ARGS"
 
+    - name: Build deps
+      run: |
+        cd ~/kali-arm
+        
+        # 运行构建
+        echo "=== Starting Build ==="
+        sudo ${{ steps.build_args.outputs.args }} ./common.d/build_deps.sh
+      timeout-minutes: 150
+
+
     - name: Build Kali Linux image
       run: |
         cd ~/kali-arm
@@ -143,6 +153,7 @@ jobs:
         echo "=== Starting Build ==="
         sudo ${{ steps.build_args.outputs.args }} ./nanopi-neo-plus2.sh
       timeout-minutes: 150
+
 
     - name: Check build output
       run: |
