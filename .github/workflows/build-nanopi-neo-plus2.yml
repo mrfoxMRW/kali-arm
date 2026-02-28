@@ -15,10 +15,6 @@ jobs:
 
       - name: 配置软件源并安装构建依赖
         run: |
-          # 启用 universe 仓库
-          sudo add-apt-repository universe -y
-          # 添加 arm64 架构支持
-          sudo dpkg --add-architecture arm64
           # 更新软件源
           sudo apt update -y
           # 安装依赖
