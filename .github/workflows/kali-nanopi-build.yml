@@ -12,60 +12,21 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
         with:
-          submodules: 'recursive' # 如果有子模块，建议启用
+          submodules: 'recursive' # 确保子模块也被拉取，通常构建脚本依赖子模块
 
-      - name: 配置软件源并安装构建依赖
+      - name: 执行官方依赖脚本 (build_deps.sh)
         run: |
-          # 启用 universe 仓库
-          sudo add-apt-repository universe -y
-          # 添加 arm64 架构支持
-          sudo dpkg --add-architecture arm64
-          # 更新软件源
-          sudo apt update -y
-          # 安装依赖
-          sudo apt install -y \
-            debootstrap \
-            qemu-user-static \
-            binfmt-support \
-            device-tree-compiler \
-            lzma \
-            lzop \
-            u-boot-tools \
-            pixz \
-            gcc-aarch64-linux-gnu \
-            git \
-            systemd-container \
-            debian-archive-keyring \
-            apt-transport-https \
-            ca-certificates \
-            fdisk \
-            parted \
-            kmod \
-            xz-utils
-
-      - name: 检查 qemu-aarch64-static 是否存在
-        run: |
-          if [ -f /usr/bin/qemu-aarch64-static ]; then
-            echo "✅ qemu-aarch64-static 已找到"
-            ls -lh /usr/bin/qemu-aarch64-static
-          else
-            echo "❌ qemu-aarch64-static 未找到，尝试重新安装"
-            sudo apt install -y qemu-user-static binfmt-support
-            sudo update-binfmts --enable
-          fi
-
-      - name: 执行官方依赖脚本
-        run: |
-          chmod +x ./common.d/build_deps.sh
-          # 先检查脚本是否存在
+          echo "🚀 开始执行环境配置脚本..."
           if [ -f ./common.d/build_deps.sh ]; then
-            echo "🚀 开始执行 build_deps.sh..."
+            chmod +x ./common.d/build_deps.sh
+            # 官方脚本通常会自动处理 apt 源更新和依赖安装
             sudo ./common.d/build_deps.sh
           else
-            echo "⚠️  未找到 build_deps.sh，跳过此步骤"
+            echo "❌ 错误：未找到 ./common.d/build_deps.sh"
+            exit 1
           fi
 
-      - name: 配置交叉编译环境
+      - name: 配置交叉编译环境变量
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
@@ -73,41 +34,41 @@ jobs:
 
       - name: 执行 NanoPi 构建脚本
         run: |
-          chmod +x ./nanopi-neo-plus2.sh
-          export TERM=xterm
-          # 检查脚本是否存在
+          echo "🚀 开始构建 NanoPi Neo Plus2 镜像..."
           if [ -f ./nanopi-neo-plus2.sh ]; then
-            echo "🚀 开始构建 NanoPi Neo Plus2 镜像..."
-            # 使用 sudo -E 保留环境变量
+            chmod +x ./nanopi-neo-plus2.sh
+            export TERM=xterm
+            # 使用 sudo -E 传递环境变量执行构建
             sudo -E ./nanopi-neo-plus2.sh
           else
-            echo "❌ 未找到 nanopi-neo-plus2.sh，构建失败"
+            echo "❌ 错误：未找到 ./nanopi-neo-plus2.sh"
             exit 1
           fi
 
       - name: 检查编译产物 (images/)
         run: |
-          echo "📦 检查 images/ 目录内容："
+          echo "📦 检查输出目录..."
           if [ -d "images" ]; then
             ls -lh images/
-            # 确认是否有 .img.xz 文件
+            # 验证是否存在预期的压缩镜像文件
             if ls images/*.img.xz 1> /dev/null 2>&1; then
               echo "✅ 成功找到 .img.xz 文件"
             else
-              echo "⚠️  未在 images/ 中找到 .img.xz 文件，列出所有文件供排查："
+              echo "⚠️  未在 images/ 中找到 .img.xz 文件。"
+              echo "🔍 目录内所有文件列表："
               find images/ -type f
-              # 如果脚本生成的是 .img 而不是 .img.xz，这里也能看到
-              exit 1 
+              # 如果找不到 .img.xz 则报错，防止上传空制品
+              exit 1
             fi
           else
-            echo "❌ images/ 目录不存在，构建可能未成功完成"
+            echo "❌ 错误：images/ 目录不存在，构建可能失败。"
             exit 1
           fi
 
-      - name: 上传编译产物（img.xz 镜像）
+      - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: kali-linux-nanopi-neo-plus2-arm64
           path: images/*.img.xz
-          if-no-files-found: error # 如果没有文件则报错，避免误上传
-          retention-days: 5 # 可选：设置保留天数，节省空间
+          if-no-files-found: error
+          retention-days: 7
