@@ -140,6 +140,15 @@ jobs:
         sudo ${{ steps.build_args.outputs.args }} ./common.d/build_deps.sh
       timeout-minutes: 150
 
+    - name: Install qemu-user-static
+      run: |
+        cd ~/kali-arm
+        
+        # 运行构建
+        echo "=== Starting Install qemu-user-static ==="
+        sudo apt install -y qemu-user-static binfmt-support
+        ls /usr/bin/qemu-aarch64-static
+      timeout-minutes: 150
 
     - name: Build Kali Linux image
       run: |
