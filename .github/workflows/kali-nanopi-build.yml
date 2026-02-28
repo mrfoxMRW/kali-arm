@@ -1,4 +1,5 @@
 name: Build Kali Linux for NanoPi
+
 on:
   push:
     branches: [ main ]
@@ -36,7 +37,11 @@ jobs:
             systemd-container \
             debian-archive-keyring \
             apt-transport-https \
-            ca-certificates
+            ca-certificates \
+            fdisk \
+            parted \
+            kmod \
+            xz-utils
 
       - name: 检查 qemu-aarch64-static 是否存在
         run: |
@@ -54,6 +59,7 @@ jobs:
           chmod +x ./common.d/build_deps.sh
           # 先检查脚本是否存在
           if [ -f ./common.d/build_deps.sh ]; then
+            echo "🚀 开始执行 build_deps.sh..."
             sudo ./common.d/build_deps.sh
           else
             echo "⚠️  未找到 build_deps.sh，跳过此步骤"
@@ -71,20 +77,37 @@ jobs:
           export TERM=xterm
           # 检查脚本是否存在
           if [ -f ./nanopi-neo-plus2.sh ]; then
+            echo "🚀 开始构建 NanoPi Neo Plus2 镜像..."
+            # 使用 sudo -E 保留环境变量
             sudo -E ./nanopi-neo-plus2.sh
           else
             echo "❌ 未找到 nanopi-neo-plus2.sh，构建失败"
             exit 1
           fi
 
-      - name: 检查编译产物
+      - name: 检查编译产物 (images/)
         run: |
-          echo "📦 当前目录文件列表："
-          ls -lh ./*.img.xz || echo "⚠️  未找到 .img.xz 文件"
+          echo "📦 检查 images/ 目录内容："
+          if [ -d "images" ]; then
+            ls -lh images/
+            # 确认是否有 .img.xz 文件
+            if ls images/*.img.xz 1> /dev/null 2>&1; then
+              echo "✅ 成功找到 .img.xz 文件"
+            else
+              echo "⚠️  未在 images/ 中找到 .img.xz 文件，列出所有文件供排查："
+              find images/ -type f
+              # 如果脚本生成的是 .img 而不是 .img.xz，这里也能看到
+              exit 1 
+            fi
+          else
+            echo "❌ images/ 目录不存在，构建可能未成功完成"
+            exit 1
+          fi
 
       - name: 上传编译产物（img.xz 镜像）
         uses: actions/upload-artifact@v4
         with:
           name: kali-linux-nanopi-neo-plus2-arm64
-          path: ./*.img.xz
+          path: images/*.img.xz
           if-no-files-found: error # 如果没有文件则报错，避免误上传
+          retention-days: 5 # 可选：设置保留天数，节省空间
