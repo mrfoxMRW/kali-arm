@@ -1,205 +1,93 @@
-name: Build Kali Linux for NanoPi NEO Plus2
-
+name: Build Kali Linux for NanoPi
 on:
-  # 手动触发
-  workflow_dispatch:
-    inputs:
-      architecture:
-        description: 'Architecture (arm64, armhf)'
-        required: false
-        default: 'arm64'
-        type: choice
-        options:
-          - arm64
-          - armhf
-      desktop:
-        description: 'Desktop Environment'
-        required: false
-        default: 'xfce'
-        type: choice
-        options:
-          - xfce
-          - gnome
-          - kde
-          - i3
-          - lxde
-          - mate
-          - e17
-          - none
-      minimal:
-        description: 'Minimal image (no desktop)'
-        required: false
-        default: false
-        type: boolean
-      slim:
-        description: 'Slim image (no desktop & cli tools)'
-        required: false
-        default: false
-        type: boolean
-
-  # 定时触发（每周日凌晨2点）
-  schedule:
-    - cron: '0 2 * * 0'
-
-  # 代码推送时触发
   push:
-    branches: [ main, master ]
-    paths:
-      - '.github/workflows/build-nanopi-neo-plus2.yml'
-
-env:
-  DEBIAN_FRONTEND: noninteractive
+    branches: [ main ]
+  workflow_dispatch: # 支持手动触发编译
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    
+    runs-on: ubuntu-22.04
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: 拉取代码
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive' # 如果有子模块，建议启用
 
-    - name: Set up QEMU for ARM emulation
-      uses: docker/setup-qemu-action@v3
-      with:
-        platforms: arm64,arm
+      - name: 配置软件源并安装构建依赖
+        run: |
+          # 启用 universe 仓库
+          sudo add-apt-repository universe -y
+          # 添加 arm64 架构支持
+          sudo dpkg --add-architecture arm64
+          # 更新软件源
+          sudo apt update -y
+          # 安装依赖
+          sudo apt install -y \
+            debootstrap \
+            qemu-user-static \
+            binfmt-support \
+            device-tree-compiler \
+            lzma \
+            lzop \
+            u-boot-tools \
+            pixz \
+            gcc-aarch64-linux-gnu \
+            git \
+            systemd-container \
+            debian-archive-keyring \
+            apt-transport-https \
+            ca-certificates
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: 检查 qemu-aarch64-static 是否存在
+        run: |
+          if [ -f /usr/bin/qemu-aarch64-static ]; then
+            echo "✅ qemu-aarch64-static 已找到"
+            ls -lh /usr/bin/qemu-aarch64-static
+          else
+            echo "❌ qemu-aarch64-static 未找到，尝试重新安装"
+            sudo apt install -y qemu-user-static binfmt-support
+            sudo update-binfmts --enable
+          fi
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          git \
-          qemu-user-static \
-          binfmt-support \
-          parted \
-          debootstrap \
-          zerofree \
-          pxz \
-          qemu-utils \
-          kpartx \
-          lvm2 \
-          dosfstools \
-          e2fsprogs \
-          btrfs-progs \
-          xfsprogs \
-          xz-utils \
-          curl \
-          wget \
-          rsync \
-          u-boot-tools \
-          bc \
-          bison \
-          flex \
-          libssl-dev \
-          make \
-          gcc \
-          gcc-arm-linux-gnueabihf \
-          gcc-aarch64-linux-gnu \
-          qemu-system-arm \
-          qemu-efi-aarch64 \
-          device-tree-compiler \
-          swig \
-          python3-dev \
-          python3-distutils \
-          python3-setuptools
+      - name: 执行官方依赖脚本
+        run: |
+          chmod +x ./common.d/build_deps.sh
+          # 先检查脚本是否存在
+          if [ -f ./common.d/build_deps.sh ]; then
+            sudo ./common.d/build_deps.sh
+          else
+            echo "⚠️  未找到 build_deps.sh，跳过此步骤"
+          fi
 
-    - name: Clone kali-arm build scripts
-      run: |
-        git clone --depth 1 https://gitlab.com/kalilinux/build-scripts/kali-arm.git ~/kali-arm
-        cd ~/kali-arm
-        ls -la
+      - name: 配置交叉编译环境
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "TERM=xterm" >> $GITHUB_ENV
 
-    - name: Prepare build arguments
-      id: build_args
-      run: |
-        ARCH="${{ github.event.inputs.architecture || 'arm64' }}"
-        DESKTOP="${{ github.event.inputs.desktop || 'xfce' }}"
-        
-        ARGS="--arch $ARCH --desktop $DESKTOP"
-        
-        if [ "${{ github.event.inputs.minimal }}" == "true" ]; then
-          ARGS="$ARGS --minimal"
-        fi
-        
-        if [ "${{ github.event.inputs.slim }}" == "true" ]; then
-          ARGS="$ARGS --slim"
-        fi
-        
-        echo "args=$ARGS" >> $GITHUB_OUTPUT
-        echo "Build arguments: $ARGS"
+      - name: 执行 NanoPi 构建脚本
+        run: |
+          chmod +x ./nanopi-neo-plus2.sh
+          export TERM=xterm
+          # 检查脚本是否存在
+          if [ -f ./nanopi-neo-plus2.sh ]; then
+            sudo -E ./nanopi-neo-plus2.sh
+          else
+            echo "❌ 未找到 nanopi-neo-plus2.sh，构建失败"
+            exit 1
+          fi
 
-    - name: Build deps
-      run: |
-        cd ~/kali-arm
-        
-        # 运行构建
-        echo "=== Starting Build ==="
-        sudo ${{ steps.build_args.outputs.args }} ./common.d/build_deps.sh
-      timeout-minutes: 150
+      - name: 检查编译产物
+        run: |
+          echo "📦 当前目录文件列表："
+          ls -lh ./*.img.xz || echo "⚠️  未找到 .img.xz 文件"
 
-    - name: Install qemu-user-static
-      run: |
-        cd ~/kali-arm
-        
-        # 运行构建
-        echo "=== Starting Install qemu-user-static ==="
-        sudo apt install -y qemu-user-static binfmt-support
-        ls /usr/bin/qemu-aarch64-static
-      timeout-minutes: 150
-
-    - name: Build Kali Linux image
-      run: |
-        cd ~/kali-arm
-        
-        # 显示帮助信息
-        echo "=== Build Script Help ==="
-        sudo ./nanopi-neo-plus2.sh --help || true
-        
-        # 运行构建
-        echo "=== Starting Build ==="
-        sudo ${{ steps.build_args.outputs.args }} ./nanopi-neo-plus2.sh
-      timeout-minutes: 150
-
-
-    - name: Check build output
-      run: |
-        cd ~/kali-arm/images
-        echo "=== Build Output ==="
-        ls -lah
-        
-        # 获取镜像文件名
-        IMAGE_FILE=$(ls -t *.img* 2>/dev/null | head -1)
-        if [ -z "$IMAGE_FILE" ]; then
-          echo "Error: No image file found!"
-          exit 1
-        fi
-        
-        echo "Generated image: $IMAGE_FILE"
-        echo "image_file=$IMAGE_FILE" >> $GITHUB_ENV
-        
-        # 计算文件哈希
-        sha256sum $IMAGE_FILE > ${IMAGE_FILE}.sha256
-        cat ${IMAGE_FILE}.sha256
-
-    - name: Compress image (if not already compressed)
-      run: |
-        cd ~/kali-arm/images
-        
-        # 查找生成的镜像文件
-        IMAGE_FILE=$(ls -t *.img 2>/dev/null | head -1)
-        
-        if [ -n "$IMAGE_FILE" ]; then
-          echo "Compressing $IMAGE_FILE..."
-          xz -T0 -v $IMAGE_FILE
+      - name: 上传编译产物（img.xz 镜像）
+        uses: actions/upload-artifact@v4
+        with:
+          name: kali-linux-nanopi-neo-plus2-arm64
+          path: ./*.img.xz
+          if-no-files-found: error # 如果没有文件则报错，避免误上传
           
-          COMPRESSED_FILE="${IMAGE_FILE}.xz"
-          echo "compressed_file=$COMPRESSED_FILE" >> $GITHUB_ENV
           
-          # 更新哈希文件
-          sha256sum $COMPRESSED_FILE > ${COMPRESSED_FILE}.sha256
-        else
-          # 查找已压缩的文件
           
