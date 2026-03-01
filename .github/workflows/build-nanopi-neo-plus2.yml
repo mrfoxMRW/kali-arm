@@ -42,6 +42,27 @@ jobs:
             echo "⚠️  未找到 build_deps.sh，跳过此步骤"
           fi
 
+
+      - name: 配置软件源并安装构建依赖
+        run: |
+          # 更新软件源
+          sudo apt update -y
+          # 安装依赖
+          sudo apt install -y qemu-user-static binfmt-support
+          ls /usr/bin/qemu-aarch64-static
+
+      - name: 检查 qemu-aarch64-static 是否存在
+        run: |
+          if [ -f /usr/bin/qemu-aarch64-static ]; then
+            echo "✅ qemu-aarch64-static 已找到"
+            ls -lh /usr/bin/qemu-aarch64-static
+          else
+            echo "❌ qemu-aarch64-static 未找到，尝试重新安装"
+            sudo apt install -y qemu-user-static binfmt-support
+            sudo update-binfmts --enable
+          fi
+
+
       - name: 配置交叉编译环境
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
