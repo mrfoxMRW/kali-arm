@@ -42,27 +42,6 @@ jobs:
             echo "⚠️  未找到 build_deps.sh，跳过此步骤"
           fi
 
-
-      - name: 配置软件源并安装构建依赖
-        run: |
-          # 更新软件源
-          sudo apt update -y
-          # 安装依赖
-          sudo apt install -y qemu-user-static binfmt-support
-          ls /usr/bin/qemu-aarch64-static
-
-      - name: 检查 qemu-aarch64-static 是否存在
-        run: |
-          if [ -f /usr/bin/qemu-aarch64-static ]; then
-            echo "✅ qemu-aarch64-static 已找到"
-            ls -lh /usr/bin/qemu-aarch64-static
-          else
-            echo "❌ qemu-aarch64-static 未找到，尝试重新安装"
-            sudo apt install -y qemu-user-static binfmt-support
-            sudo update-binfmts --enable
-          fi
-
-
       - name: 配置交叉编译环境
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
@@ -83,15 +62,12 @@ jobs:
 
       - name: 检查编译产物
         run: |
-          echo "📦 当前目录文件列表："
-          ls -lh ./*.img.xz || echo "⚠️  未找到 .img.xz 文件"
+          echo "📦 images 目录文件列表："
+          ls -lh ./images/*.img.xz || echo "⚠️  未找到 .img.xz 文件"
 
       - name: 上传编译产物（img.xz 镜像）
         uses: actions/upload-artifact@v4
         with:
           name: kali-linux-nanopi-neo-plus2-arm64
-          path: ./*.img.xz
+          path: ./images/*.img.xz
           if-no-files-found: error # 如果没有文件则报错，避免误上传
-          
-          
-          
