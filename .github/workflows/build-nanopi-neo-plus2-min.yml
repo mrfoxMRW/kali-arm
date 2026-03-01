@@ -1,0 +1,96 @@
+name: Build Kali Linux for NanoPi
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # 支持手动触发编译
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive' # 如果有子模块，建议启用
+
+      - name: 配置软件源并安装构建依赖
+        run: |
+          # 更新软件源
+          sudo apt update -y
+          # 安装依赖
+          sudo apt install -y qemu-user-static binfmt-support
+          ls /usr/bin/qemu-aarch64-static
+
+      - name: 检查 qemu-aarch64-static 是否存在
+        run: |
+          if [ -f /usr/bin/qemu-aarch64-static ]; then
+            echo "✅ qemu-aarch64-static 已找到"
+            ls -lh /usr/bin/qemu-aarch64-static
+          else
+            echo "❌ qemu-aarch64-static 未找到，尝试重新安装"
+            sudo apt install -y qemu-user-static binfmt-support
+            sudo update-binfmts --enable
+          fi
+
+      - name: 执行官方依赖脚本
+        run: |
+          chmod +x ./common.d/build_deps.sh
+          # 先检查脚本是否存在
+          if [ -f ./common.d/build_deps.sh ]; then
+            sudo ./common.d/build_deps.sh
+          else
+            echo "⚠️  未找到 build_deps.sh，跳过此步骤"
+          fi
+
+
+      - name: 配置软件源并安装构建依赖
+        run: |
+          # 更新软件源
+          sudo apt update -y
+          # 安装依赖
+          sudo apt install -y qemu-user-static binfmt-support
+          ls /usr/bin/qemu-aarch64-static
+
+      - name: 检查 qemu-aarch64-static 是否存在
+        run: |
+          if [ -f /usr/bin/qemu-aarch64-static ]; then
+            echo "✅ qemu-aarch64-static 已找到"
+            ls -lh /usr/bin/qemu-aarch64-static
+          else
+            echo "❌ qemu-aarch64-static 未找到，尝试重新安装"
+            sudo apt install -y qemu-user-static binfmt-support
+            sudo update-binfmts --enable
+          fi
+
+
+      - name: 配置交叉编译环境
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "TERM=xterm" >> $GITHUB_ENV
+
+      - name: 执行 NanoPi 构建脚本
+        run: |
+          chmod +x ./nanopi-neo-plus2.sh
+          export TERM=xterm
+          # 检查脚本是否存在
+          if [ -f ./nanopi-neo-plus2.sh ]; then
+            sudo -E ./nanopi-neo-plus2.sh --minimal
+
+          else
+            echo "❌ 未找到 nanopi-neo-plus2.sh，构建失败"
+            exit 1
+          fi
+
+      - name: 检查编译产物
+        run: |
+          echo "📦 images 目录文件列表："
+          ls -lh ./images/*.img.xz* || echo "⚠️  未找到 .img.xz 或 .img.xz.xz 文件"
+
+
+      - name: 上传编译产物（img.xz 镜像）
+        uses: actions/upload-artifact@v4
+        with:
+          name: kali-linux-nanopi-neo-plus2-arm64
+          path: ./images/*.img.xz
+          if-no-files-found: error # 如果没有文件则报错，避免误上传
