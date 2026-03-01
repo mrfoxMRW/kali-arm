@@ -56,6 +56,7 @@ jobs:
           if [ -f /usr/bin/qemu-aarch64-static ]; then
             echo "✅ qemu-aarch64-static 已找到"
             ls -lh /usr/bin/qemu-aarch64-static
+            apt-get install -y file
           else
             echo "❌ qemu-aarch64-static 未找到，尝试重新安装"
             sudo apt install -y qemu-user-static binfmt-support
