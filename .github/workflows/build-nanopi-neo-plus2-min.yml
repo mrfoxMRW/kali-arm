@@ -56,6 +56,7 @@ jobs:
           if [ -f /usr/bin/qemu-aarch64-static ]; then
             echo "✅ qemu-aarch64-static 已找到"
             ls -lh /usr/bin/qemu-aarch64-static
+            apt-get install -y file
           else
             echo "❌ qemu-aarch64-static 未找到，尝试重新安装"
             sudo apt install -y qemu-user-static binfmt-support
@@ -68,6 +69,14 @@ jobs:
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
           echo "TERM=xterm" >> $GITHUB_ENV
+
+      - name: 打补丁file命令
+        run: |
+          # 更新软件源
+          sudo apt update -y
+          # 安装依赖
+          sudo apt-get install -y file
+
 
       - name: 执行 NanoPi 构建脚本
         run: |
