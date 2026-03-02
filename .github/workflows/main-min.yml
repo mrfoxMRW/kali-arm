@@ -85,7 +85,7 @@ jobs:
           export TERM=xterm
           # 检查脚本是否存在
           if [ -f ./nanopi-neo-plus2.sh ]; then
-            sudo -E env "PATH=$PATH" ./nanopi-neo-plus2.sh --minimal
+            sudo -E EXTRA_PACKAGES="file" ./nanopi-neo-plus2.sh --minimal
 
           else
             echo "❌ 未找到 nanopi-neo-plus2.sh，构建失败"
